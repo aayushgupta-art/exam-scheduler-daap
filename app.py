@@ -8,12 +8,10 @@ st.set_page_config(page_title="Intelligent Exam Scheduler System", layout="wide"
 st.title("?? Intelligent Exam & Room Scheduling System")
 st.markdown("DAA Project: **Graph Colouring & Dynamic Multi-Room Optimization**")
 
-# Sidebar Configuration
 st.sidebar.header("Scheduler Parameters")
 num_days = st.sidebar.slider("Exam Period (Days)", min_value=1, max_value=14, value=5)
 slots_per_day = st.sidebar.selectbox("Time Slots per Day", [2, 3, 4], index=1)
 
-# Initialize persistent session state
 if "my_courses" not in st.session_state:
     st.session_state.my_courses = pd.DataFrame([
         {"Course Code": "CS101", "Course Name": "Data Structures", "Branch": "Computer Science", "Year": 2, "Students": 45},
@@ -59,7 +57,6 @@ with col2:
 
 st.divider()
 
-# Display current registries with delete options
 c_tab1, c_tab2 = st.tabs(["?? Current Courses Registry", "?? Current Rooms Infrastructure"])
 
 with c_tab1:
@@ -76,7 +73,6 @@ with c_tab2:
 
 st.divider()
 
-# Execution Button
 if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"):
     edited_courses = st.session_state.my_courses
     edited_rooms = st.session_state.my_rooms
@@ -84,7 +80,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
     if edited_courses.empty or edited_rooms.empty:
         st.error("Please ensure both courses and rooms are provided.")
     else:
-        # Step 1: Build Unique Exam Nodes & Conflict Graph
         G = nx.Graph()
         exam_nodes = []
         
@@ -109,7 +104,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
             })
             G.add_node(node_id)
             
-        # Add conflict edges if courses share the same Academic Year or Branch
         for i in range(len(exam_nodes)):
             for j in range(i + 1, len(exam_nodes)):
                 e1 = exam_nodes[i]
@@ -117,7 +111,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
                 if e1["year"] == e2["year"] or e1["branch"] == e2["branch"]:
                     G.add_edge(e1["node_id"], e2["node_id"])
 
-        # Step 2: Graph Colouring for Timetable Slot Assignment
         try:
             coloring = nx.coloring.greedy_color(G, strategy="largest_first")
         except Exception:
@@ -132,7 +125,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
         ]
         
         schedule_results = []
-        
         rooms_sorted = edited_rooms.copy()
         rooms_sorted["Capacity"] = pd.to_numeric(rooms_sorted["Capacity"], errors="coerce").fillna(0)
         rooms_sorted = rooms_sorted.sort_values(by="Capacity", ascending=False).reset_index(drop=True)
@@ -142,11 +134,11 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
         for node_id, color_id in coloring.items():
             exam = node_lookup[node_id]
             
+            # Spread colors across the days properly using modulo and multiplication factor
             slot_index = color_id % total_available_slots
             assigned_day = (slot_index // slots_per_day) + 1
             assigned_time_slot = slot_labels[slot_index % slots_per_day]
             
-            # Step 3: Dynamic Multi-Room Allocation
             remaining_students = exam["students"]
             allocated_allocation_list = []
             
@@ -188,7 +180,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
         st.subheader("?? Final Optimized Exam Schedule")
         st.dataframe(df_final_schedule, use_container_width=True)
         
-        # Step 4: Conflict Graph Visualization
         st.subheader("?? Conflict Graph Topology (Graph Colouring)")
         fig, ax = plt.subplots(figsize=(8, 5))
         pos = nx.spring_layout(G, seed=42)

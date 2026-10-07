@@ -127,25 +127,15 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
         rooms_base = edited_rooms.copy()
         rooms_base["Capacity"] = pd.to_numeric(rooms_base["Capacity"], errors="coerce").fillna(0)
         
-        # Global room booking ledger tracking which rooms are locked in which exact Date + TimeSlot
         slot_room_ledger = {}
-        
-        # STRICT AUTOMATION MATRIX:
-        # Assign each course to a strictly unique chronological slot index so no two courses share a time slot unless non-conflicting,
-        # and ensure same-year courses are strictly placed on sequential days/slots to prevent paper leaks.
         max_total_slots = num_days * slots_per_day
-        
-        # Sort courses so same-year items are clustered or ordered cleanly
         sorted_exams = sorted(exam_nodes, key=lambda x: (x["year"], x["code"]))
         
-        assigned_slots_tracker = set()
-        
         for global_idx, item in enumerate(sorted_exams):
-            # Find the next available absolute slot index that does not violate year/branch conflicts
             target_slot = global_idx % max_total_slots
             
-            # Ensure safety check: if target slot already has a course of the same year, shift it
-            while target_slot in [s["slot_abs"] for s in schedule_results if s["year"] == item["year"]]:
+            # Fixed capital 'Year' to prevent KeyError
+            while target_slot in [s["slot_abs"] for s in schedule_results if s["Year"] == item["year"]]:
                 target_slot = (target_slot + 1) % max_total_slots
                 
             day_idx = target_slot // slots_per_day
@@ -161,7 +151,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
             remaining_students = item["students"]
             allocated_allocation_list = []
             
-            # Pick available rooms for this slot, sorted by capacity descending (Bin-Packing)
             available_rooms = rooms_base[~rooms_base["Room No"].isin(slot_room_ledger[slot_key])]
             available_rooms = available_rooms.sort_values(by="Capacity", ascending=False)
             
@@ -174,7 +163,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
                 if r_cap <= 0:
                     continue
                 
-                # Lock room for this specific slot
                 slot_room_ledger[slot_key].add(r_name)
                 
                 if r_cap >= remaining_students:
@@ -203,7 +191,7 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
 
         df_final_schedule = pd.DataFrame(schedule_results).drop(columns=["slot_abs"])
         
-        st.success("Optimization Successful! Strict Sequential Slot Matrix & Room Ledger Active.")
+        st.success("Optimization Successful! Error Fixed & Anti-Leak Schedule Generated.")
         st.subheader("?? Final Optimized Exam Schedule")
         st.dataframe(df_final_schedule, use_container_width=True)
         

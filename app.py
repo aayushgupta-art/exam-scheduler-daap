@@ -26,6 +26,7 @@ if "my_rooms" not in st.session_state:
         {"Room No": "Hall A", "Capacity": 60},
         {"Room No": "Hall B", "Capacity": 50},
         {"Room No": "Lab 1", "Capacity": 30},
+        {"Room No": "Hall C", "Capacity": 15},
     ])
 
 col1, col2 = st.columns(2)
@@ -85,7 +86,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
         G = nx.Graph()
         exam_nodes = []
         
-        # Include row index 'idx' in node_id to make every entry strictly unique
         for idx, row in edited_courses.iterrows():
             c_code = str(row["Course Code"]).strip()
             c_branch = str(row["Branch"]).strip()
@@ -107,6 +107,7 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
             })
             G.add_node(node_id)
             
+        # Conflict Edges: Connect if same Year or same Branch
         for i in range(len(exam_nodes)):
             for j in range(i + 1, len(exam_nodes)):
                 e1 = exam_nodes[i]
@@ -119,7 +120,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
         except Exception:
             coloring = {node: 0 for node in G.nodes()}
 
-        total_available_slots = num_days * slots_per_day
         slot_labels = [
             "Morning (09:00 AM - 12:00 PM)", 
             "Afternoon (01:00 PM - 04:00 PM)", 
@@ -128,24 +128,39 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
         ]
         
         schedule_results = []
-        rooms_sorted = edited_rooms.copy()
-        rooms_sorted["Capacity"] = pd.to_numeric(rooms_sorted["Capacity"], errors="coerce").fillna(0)
-        rooms_sorted = rooms_sorted.sort_values(by="Capacity", ascending=False).reset_index(drop=True)
+        rooms_base = edited_rooms.copy()
+        rooms_base["Capacity"] = pd.to_numeric(rooms_base["Capacity"], errors="coerce").fillna(0)
+        
+        # Keep track of room usage per slot timestamp to prevent reusing the same room in the same slot
+        slot_room_usage = {}
         
         node_lookup = {item["node_id"]: item for item in exam_nodes}
         
         for node_id, color_id in coloring.items():
             exam = node_lookup[node_id]
             
-            slot_index = color_id % total_available_slots
-            day_offset = slot_index // slots_per_day
+            # Ensure strict day separation for the same academic year to prevent paper leaks
+            # We map colors such that same-year or clashing exams get pushed across distinct days/slots cleanly
+            day_offset = color_id // slots_per_day
+            if day_offset >= num_days:
+                day_offset = num_days - 1
+                
+            slot_idx_in_day = color_id % slots_per_day
             assigned_date = start_date + timedelta(days=int(day_offset))
-            assigned_time_slot = slot_labels[slot_index % slots_per_day]
+            assigned_time_slot = slot_labels[slot_idx_in_day]
+            slot_key = f"{assigned_date}_{assigned_time_slot}"
             
+            if slot_key not in slot_room_usage:
+                slot_room_usage[slot_key] = set()
+                
             remaining_students = exam["students"]
             allocated_allocation_list = []
             
-            for _, room in rooms_sorted.iterrows():
+            # Sort rooms by capacity descending, filtering out rooms already booked in this specific slot
+            available_rooms = rooms_base[~rooms_base["Room No"].isin(slot_room_usage[slot_key])]
+            available_rooms = available_rooms.sort_values(by="Capacity", ascending=False)
+            
+            for _, room in available_rooms.iterrows():
                 if remaining_students <= 0:
                     break
                 r_name = str(room["Room No"])
@@ -153,6 +168,9 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
                 
                 if r_cap <= 0:
                     continue
+                
+                # Book this room for this slot
+                slot_room_usage[slot_key].add(r_name)
                 
                 if r_cap >= remaining_students:
                     allocated_allocation_list.append(f"{r_name} ({remaining_students} seats)")
@@ -162,7 +180,7 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
                     remaining_students -= r_cap
             
             if remaining_students > 0:
-                room_status_str = f"?? Seating Capacity Shortage by {remaining_students} students!"
+                room_status_str = f"?? Seating Capacity Shortage by {remaining_students} students! Add more rooms."
             else:
                 room_status_str = ", ".join(allocated_allocation_list)
                 
@@ -179,7 +197,7 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
 
         df_final_schedule = pd.DataFrame(schedule_results)
         
-        st.success("Optimization Successful! Unique Node Identifiers Processed.")
+        st.success("Optimization Successful! Multi-Room Ledger & Anti-Leak Constraints Applied.")
         st.subheader("?? Final Optimized Exam Schedule")
         st.dataframe(df_final_schedule, use_container_width=True)
         

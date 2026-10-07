@@ -85,6 +85,7 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
         G = nx.Graph()
         exam_nodes = []
         
+        # Include row index 'idx' in node_id to make every entry strictly unique
         for idx, row in edited_courses.iterrows():
             c_code = str(row["Course Code"]).strip()
             c_branch = str(row["Branch"]).strip()
@@ -95,7 +96,7 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
                 c_year = 1
                 c_students = 0
             
-            node_id = f"{c_code} [{c_branch} - Yr {c_year}]"
+            node_id = f"{c_code} [{c_branch} - Yr {c_year}] (ID:{idx})"
             exam_nodes.append({
                 "node_id": node_id,
                 "code": c_code,
@@ -178,7 +179,7 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
 
         df_final_schedule = pd.DataFrame(schedule_results)
         
-        st.success("Optimization Successful! Calendar Dates Computed.")
+        st.success("Optimization Successful! Unique Node Identifiers Processed.")
         st.subheader("?? Final Optimized Exam Schedule")
         st.dataframe(df_final_schedule, use_container_width=True)
         

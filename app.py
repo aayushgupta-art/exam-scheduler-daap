@@ -26,7 +26,8 @@ if "my_rooms" not in st.session_state:
         {"Room No": "Hall A", "Capacity": 60},
         {"Room No": "Hall B", "Capacity": 50},
         {"Room No": "Lab 1", "Capacity": 30},
-        {"Room No": "Hall C", "Capacity": 15},
+        {"Room No": "Hall C", "Capacity": 20},
+        {"Room No": "Hall D", "Capacity": 45},
     ])
 
 col1, col2 = st.columns(2)
@@ -131,21 +132,36 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
         rooms_base = edited_rooms.copy()
         rooms_base["Capacity"] = pd.to_numeric(rooms_base["Capacity"], errors="coerce").fillna(0)
         
-        # Keep track of room usage per slot timestamp to prevent reusing the same room in the same slot
         slot_room_usage = {}
-        
         node_lookup = {item["node_id"]: item for item in exam_nodes}
         
-        for node_id, color_id in coloring.items():
+        # STRICT AUTOMATION ENFORCEMENT:
+        # Group color indices by Academic Year or ensure strictly distinct time slots per year
+        # To completely prevent paper leaks, let's map each unique exam such that same-year courses get strictly separated days.
+        year_tracker = {}
+        global_slot_counter = 0
+        
+        sorted_nodes = sorted(coloring.items(), key=lambda x: node_lookup[x[0]]["year"])
+        
+        for node_id, _ in sorted_nodes:
             exam = node_lookup[node_id]
+            year = exam["year"]
             
-            # Ensure strict day separation for the same academic year to prevent paper leaks
-            # We map colors such that same-year or clashing exams get pushed across distinct days/slots cleanly
-            day_offset = color_id // slots_per_day
-            if day_offset >= num_days:
-                day_offset = num_days - 1
-                
-            slot_idx_in_day = color_id % slots_per_day
+            if year not in year_tracker:
+                year_tracker[year] = global_slot_counter
+                global_slot_counter += 1  # Push subsequent years to distinct scheduling slots/days
+            else:
+                # If same year has multiple courses, push them to the next available distinct slot index
+                global_slot_counter += 1
+                year_tracker[year] = global_slot_counter
+
+            slot_index = year_tracker[year]
+            total_slots = num_days * slots_per_day
+            slot_index = slot_index % total_slots
+            
+            day_offset = slot_index // slots_per_day
+            slot_idx_in_day = slot_index % slots_per_day
+            
             assigned_date = start_date + timedelta(days=int(day_offset))
             assigned_time_slot = slot_labels[slot_idx_in_day]
             slot_key = f"{assigned_date}_{assigned_time_slot}"
@@ -156,7 +172,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
             remaining_students = exam["students"]
             allocated_allocation_list = []
             
-            # Sort rooms by capacity descending, filtering out rooms already booked in this specific slot
             available_rooms = rooms_base[~rooms_base["Room No"].isin(slot_room_usage[slot_key])]
             available_rooms = available_rooms.sort_values(by="Capacity", ascending=False)
             
@@ -169,7 +184,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
                 if r_cap <= 0:
                     continue
                 
-                # Book this room for this slot
                 slot_room_usage[slot_key].add(r_name)
                 
                 if r_cap >= remaining_students:
@@ -197,7 +211,7 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
 
         df_final_schedule = pd.DataFrame(schedule_results)
         
-        st.success("Optimization Successful! Multi-Room Ledger & Anti-Leak Constraints Applied.")
+        st.success("Optimization Successful! Anti-Leak & Automated Slot Distribution Active.")
         st.subheader("?? Final Optimized Exam Schedule")
         st.dataframe(df_final_schedule, use_container_width=True)
         

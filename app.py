@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Intelligent Exam Scheduler System", layout="wide")
 
@@ -11,6 +12,7 @@ st.markdown("DAA Project: **Graph Colouring & Dynamic Multi-Room Optimization**"
 st.sidebar.header("Scheduler Parameters")
 num_days = st.sidebar.slider("Exam Period (Days)", min_value=1, max_value=14, value=5)
 slots_per_day = st.sidebar.selectbox("Time Slots per Day", [2, 3, 4], index=1)
+start_date = st.sidebar.date_input("Exam Period Start Date", value=datetime.today())
 
 if "my_courses" not in st.session_state:
     st.session_state.my_courses = pd.DataFrame([
@@ -134,9 +136,9 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
         for node_id, color_id in coloring.items():
             exam = node_lookup[node_id]
             
-            # Spread colors across the days properly using modulo and multiplication factor
             slot_index = color_id % total_available_slots
-            assigned_day = (slot_index // slots_per_day) + 1
+            day_offset = slot_index // slots_per_day
+            assigned_date = start_date + timedelta(days=int(day_offset))
             assigned_time_slot = slot_labels[slot_index % slots_per_day]
             
             remaining_students = exam["students"]
@@ -169,14 +171,14 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
                 "Branch": exam["branch"],
                 "Year": exam["year"],
                 "Students": exam["students"],
-                "Exam Date": f"Day {assigned_day}",
+                "Exam Date": assigned_date.strftime("%B %d, %Y"),
                 "Time Slot": assigned_time_slot,
                 "Allocated Rooms & Seating": room_status_str
             })
 
         df_final_schedule = pd.DataFrame(schedule_results)
         
-        st.success("Optimization Successful! Live Form Inputs Processed.")
+        st.success("Optimization Successful! Calendar Dates Computed.")
         st.subheader("?? Final Optimized Exam Schedule")
         st.dataframe(df_final_schedule, use_container_width=True)
         

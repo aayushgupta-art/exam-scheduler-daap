@@ -84,11 +84,13 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
     if edited_courses.empty or edited_rooms.empty:
         st.error("Please ensure both courses and rooms are provided.")
     else:
-        G = nx.Graph()
-        exam_nodes = []
+        # Pre-process courses: Aggregate duplicate entries (same Code, Branch, Year) by summing students
+        processed_courses = []
+        grouped_dict = {}
         
         for idx, row in edited_courses.iterrows():
             c_code = str(row["Course Code"]).strip()
+            c_name = str(row["Course Name"]).strip()
             c_branch = str(row["Branch"]).strip()
             try:
                 c_year = int(row["Year"])
@@ -96,24 +98,47 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
             except ValueError:
                 c_year = 1
                 c_students = 0
-            
-            node_id = f"{c_code} [{c_branch} - Yr {c_year}] (ID:{idx})"
+                
+            key = (c_code, c_branch, c_year)
+            if key in grouped_dict:
+                grouped_dict[key]["students"] += c_students
+            else:
+                grouped_dict[key] = {
+                    "code": c_code,
+                    "name": c_name,
+                    "branch": c_branch,
+                    "year": c_year,
+                    "students": c_students
+                }
+                
+        exam_nodes = []
+        for key, val in grouped_dict.items():
+            node_id = f"{val['code']} [{val['branch']} - Yr {val['year']}]"
             exam_nodes.append({
                 "node_id": node_id,
-                "code": c_code,
-                "name": str(row["Course Name"]),
-                "branch": c_branch,
-                "year": c_year,
-                "students": c_students
+                "code": val["code"],
+                "name": val["name"],
+                "branch": val["branch"],
+                "year": val["year"],
+                "students": val["students"]
             })
-            G.add_node(node_id)
+
+        G = nx.Graph()
+        for item in exam_nodes:
+            G.add_node(item["node_id"])
             
+        # Build conflict graph among unique merged courses
         for i in range(len(exam_nodes)):
             for j in range(i + 1, len(exam_nodes)):
                 e1 = exam_nodes[i]
                 e2 = exam_nodes[j]
                 if e1["year"] == e2["year"] or e1["branch"] == e2["branch"]:
                     G.add_edge(e1["node_id"], e2["node_id"])
+
+        try:
+            coloring = nx.coloring.greedy_color(G, strategy="largest_first")
+        except Exception:
+            coloring = {node: 0 for node in G.nodes()}
 
         slot_labels = [
             "Morning (09:00 AM - 12:00 PM)", 
@@ -126,20 +151,13 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
         rooms_base = edited_rooms.copy()
         rooms_base["Capacity"] = pd.to_numeric(rooms_base["Capacity"], errors="coerce").fillna(0)
         
-        # Strict global room ledger per exact timestamp slot string
         global_room_ledger = {}
-        
-        # STRICT ANTI-LEAK MATRIX:
-        # Assign each item to a strictly unique absolute slot index so NO TWO courses ever share a day/slot if they conflict,
-        # and ensure every single course gets a completely unique time slot index.
         max_total_slots = num_days * slots_per_day
-        assigned_slots_taken = set()
+        node_lookup = {item["node_id"]: item for item in exam_nodes}
         
-        for idx, item in enumerate(exam_nodes):
-            slot_idx = idx % max_total_slots
-            while slot_idx in assigned_slots_taken:
-                slot_idx = (slot_idx + 1) % max_total_slots
-            assigned_slots_taken.add(slot_idx)
+        for node_id, color_id in coloring.items():
+            exam = node_lookup[node_id]
+            slot_idx = color_id % max_total_slots
             
             day_idx = slot_idx // slots_per_day
             slot_in_day = slot_idx % slots_per_day
@@ -151,10 +169,10 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
             if slot_key not in global_room_ledger:
                 global_room_ledger[slot_key] = set()
                 
-            remaining_students = item["students"]
+            remaining_students = exam["students"]
             allocated_allocation_list = []
             
-            # Filter out rooms already locked in this exact slot
+            # Bin-packing multi-room allocation cascading from largest to smallest available room
             available_rooms = rooms_base[~rooms_base["Room No"].isin(global_room_ledger[slot_key])]
             available_rooms = available_rooms.sort_values(by="Capacity", ascending=False)
             
@@ -167,7 +185,6 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
                 if r_cap <= 0:
                     continue
                 
-                # Permanently lock this room for this slot
                 global_room_ledger[slot_key].add(r_name)
                 
                 if r_cap >= remaining_students:
@@ -183,11 +200,11 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
                 room_status_str = ", ".join(allocated_allocation_list)
                 
             schedule_results.append({
-                "Year": item["year"],
-                "Course Code": item["code"],
-                "Course Name": item["name"],
-                "Branch": item["branch"],
-                "Students": item["students"],
+                "Year": exam["year"],
+                "Course Code": exam["code"],
+                "Course Name": exam["name"],
+                "Branch": exam["branch"],
+                "Students": exam["students"],
                 "Exam Date": assigned_date.strftime("%B %d, %Y"),
                 "Time Slot": assigned_time_slot,
                 "Allocated Rooms & Seating": room_status_str
@@ -195,7 +212,7 @@ if st.button("?? Run Intelligent Scheduling & Room Optimization", type="primary"
 
         df_final_schedule = pd.DataFrame(schedule_results)
         
-        st.success("Optimization Successful! Strict Unique Slot & Room Ledger Active.")
+        st.success("Optimization Successful! Identical Courses Merged & Multi-Room Allocated.")
         st.subheader("?? Final Optimized Exam Schedule")
         st.dataframe(df_final_schedule, use_container_width=True)
         
